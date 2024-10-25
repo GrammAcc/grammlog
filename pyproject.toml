@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "grammlog"
 dynamic = ["version"]
-description = "GrammAcc's Structured Logging for Python"
+description = "GrammAcc's Structured Logging"
 authors = [{name = "GrammAcc"}]
 maintainers = [{name = "GrammAcc"}]
 readme = "README.md"
