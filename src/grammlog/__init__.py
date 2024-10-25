@@ -217,7 +217,7 @@ from typing import (
     Callable,
 )
 
-__VERSION__ = "1.0.0"
+__VERSION__ = "1.0.1"
 
 
 _string_to_log_level_map = {
