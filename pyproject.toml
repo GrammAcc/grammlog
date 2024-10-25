@@ -1,0 +1,129 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "grammlog"
+dynamic = ["version"]
+description = "GrammAcc's Structured Logging"
+authors = [{name = "GrammAcc"}]
+maintainers = [{name = "GrammAcc"}]
+readme = "README.md"
+requires-python = ">=3.10"
+
+
+[project.optional-dependencies]
+dev = ["hatch"]
+
+[tool.hatch.version]
+path = "src/grammlog.py"
+
+
+[tool.hatch.build]
+ignore-vcs = true
+include = ["py.typed"]
+
+
+[tool.hatch.build.targets.sdist]
+include = ["src"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/grammlog.py"]
+
+
+[tool.hatch.envs.default]
+python = "3.12"
+dependencies = [
+    "pytest",
+    "pytest-cov",
+    # See: https://github.com/pytest-dev/pytest-asyncio/issues/706
+    "pytest-asyncio==0.21.2",
+    "black",
+    "flake8",
+    "isort",
+    "mypy",
+]
+
+[[tool.hatch.envs.default.matrix]]
+python = ["3.10", "3.11", "3.12"]
+
+
+[tool.hatch.envs.default.scripts]
+
+typecheck = "mypy src/grammlog.py"
+format = [
+    "isort --atomic .",
+    "black .",
+]
+lint = "flake8 src test documentation"
+test = "pytest {args}"
+cov = "pytest --cov-config=pyproject.toml --cov-report html:htmlcov --cov=grammlog"
+doctest = [
+    "python -m doctest src/grammlog.py",
+    "python -m doctest README.md",
+]
+ci = [
+    "hatch run test",
+    "- hatch run cov",
+    "hatch run doctest",
+    "hatch run typecheck",
+    "hatch run lint",
+]
+all = [
+    "hatch run format",
+    "- hatch run test",
+    "- hatch run cov",
+    "- hatch run doctest",
+    "- hatch run typecheck",
+    "- hatch run lint",
+]
+
+
+
+[tool.hatch.envs.docs]
+description = "Documentation generation and utilities"
+dependencies = [
+    "pdoc",
+]
+
+
+[tool.hatch.envs.docs.scripts]
+build = [
+    "python documentation/build.py",
+    "pdoc 'grammlog' --docformat='google' --output-directory='docs'",
+]
+serve = "python documentation/serve.py"
+
+
+[tool.pytest.ini_options]
+log_file="testsuite.log"
+log_file_level="WARNING"
+addopts = "--import-mode=importlib --show-capture=no"
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+exclude_also = [
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+fail_under = 90
+
+
+[tool.isort]
+profile = "black"
+skip_gitignore = true
+force_grid_wrap = 2
+
+[tool.mypy]
+check_untyped_defs = true
+
+[tool.black]
+line-length = 100

@@ -1,0 +1,833 @@
+"""Pure python package that provides structured logging to JSONL with no dependencies.
+
+Supports asynchronous logging via asyncio. See: [Asynchronous Logging](#asynchronous-logging)
+
+Provides wrappers around the standard `debug`, `info`, `warning`, `error`, and `critical`
+functions.
+
+Each function accepts a [`Logger`](https://docs.python.org/3/library/logging.html#logging.Logger)
+as its first argument, so you can provide a custom logger with your own handlers to write
+structured logs to any target.
+
+This package also provides a `make_logger` convenience function that creates and configures
+a file-based logger with rotating log files and a size limit.
+
+## Installation
+
+```bash
+pip install grammlog
+```
+
+## Basic Usage
+
+```pycon
+>>> import os
+>>> import grammlog
+>>> logger = grammlog.make_logger("app", log_dir="logs", log_level=grammlog.Level.INFO)
+>>> grammlog.info(logger, "application initialized")
+>>> grammlog.info(
+...     logger,
+...     "env vars set",
+...     {"env": os.environ},
+... )
+>>> grammlog.set_env(grammlog_dir="logs", default_grammlog_level=grammlog.Level.INFO)
+>>> auth_log = grammlog.make_logger("auth")  # Use the log_dir and log_level from the env.
+>>> try:
+...     user_id = 42
+...     get_user_if_logged_in(user_id)
+... except NameError as e:
+...     grammlog.error(
+...         logger,
+...         "User was not logged in",
+...         {"user_id": user_id},
+...         err=e,
+...     )
+>>> db_logger = grammlog.make_logger(
+...     "db_queries", log_dir="logs/db", log_level=grammlog.Level.ERROR
+... )
+>>> try:
+...     user_name = "invalid"
+...     db.query(table="users", user_name=user_name)
+... except NameError as e:
+...     grammlog.error(
+...         db_logger,
+...         "Unknown error in db query",
+...         {"queried_table": "users", "user_name": user_name},
+...         err=e,
+...     )
+
+```
+
+## Structured Data
+
+The logging functions all take an arbitrary logger as their first argument, which
+allows them to output structured logs to any handlers supported by the stdlib's logging module.
+But they also accept a required string `msg`, and an optional `details` dictionary as well as
+an optional `err` Exception.
+
+These arguments will be merged together into a JSON-formatted object that will be serialized
+and written to a single line of JSONL logged output using the provided logger.
+
+In addition to the data provided in the function arguments, the logged object will also include
+the following keys:
+
+  - `level`: The logging level of the message. E.g. 'DEBUG', 'ERROR'.
+  - `timestamp`: The timestamp of the logging event in UTC as given by
+[`datetime.datetime.timestamp()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.timestamp)
+
+
+If the `err` argument is not `None`, then the logged line will also contain the following keys:
+
+  - `err`: The `repr` of the `err` object.
+  - `traceback`: The formatted traceback of the exception.
+
+The `msg` string will be merged into the object under the `msg` key, and all keys and values
+in the `details` dict will be merged into the resulting object as-is.
+
+The keys in the `details` dict are assumed to be strings, but the values can be any type.
+If a value is not json-serializable, the logging function will force a string conversion
+by calling `str(value)` on it. This is applied recursively to any nested dictionaries as well.
+
+The default of calling `str` on the values is fine for logging blobs of dictionary data, but
+usually, it's best to explicitly convert an unsupported value to a json-serializable form before
+logging it so that the logs contain all of the information expected. For example, when logging
+dates/datetimes, it may be desirable to have a very high precision POSIX timestamp, or you may
+want to log a more human-readable ISO-formatted date string. Converting the value to the desired
+format before logging it is preferred.
+
+### Processing Structured Logs
+
+Logging in a structured format like JSON is useful because we can query the logs
+based on keys and values instead of simply scanning through thousands of lines
+of text manually or with inaccurate search heuristics.
+
+For example, using the shell tool [`jq`](https://jqlang.github.io/jq/), we can
+filter our logs to only the lines that have an `err` object logged.
+
+    cat debug.log | jq 'select(.err != null)'
+
+Or we can get a list of all log entries from the last 42 minutes.
+
+    cat debug.log | jq 'select(.timestamp >= (now - 2520))'
+
+Or we can count the number of log entries.
+
+    cat debug.log | jq --slurp 'length'
+
+Or we can get an array of (msg, traceback) tuples for all of the ValueErrors that we've logged.
+
+    cat debug.log | jq 'select(.err != null) | select(.err | contains("ValueError")) | \
+[.msg, .traceback]'
+
+Or we can use any other combination of query-like filters to examine the exact
+messages we're concerned with.
+
+This means that if we include queryable keys in our logging calls in the source code, it is
+easy to find the specific error messages we need to debug all the nasty issues our applications
+give us at 3am on a Saturday.
+
+## Asynchronous Logging
+
+There are async versions of each of the logging functions as well as
+`register_async_logger` and `deregister_async_logger` functions:
+
+- `async_debug`
+- `async_info`
+- `async_warning`
+- `async_error`
+- `async_critical`
+- `register_async_logger`
+- `deregister_async_logger`
+
+The async logging functions only work with a logger that has been registered.
+This is because the logging calls themselves are synchronous, and they
+need to be queued in order to run them concurrently with other tasks in the event
+loop. Registering a logger to be used asynchronously doesn't mutate the logger in
+any way, and *async loggers* are still the same
+[`logging.Logger`](https://docs.python.org/3/library/logging.html#logging.Logger)
+objects. Calling `register_async_logger` simply creates an
+[`asyncio.Queue`](https://docs.python.org/3/library/asyncio-queue.html#asyncio.Queue)
+and a [`Task`](https://docs.python.org/3/library/asyncio-task.html#task-object)
+to run synchronous logging functions in the background.
+
+The async queues are managed internally in this package and run the logging
+events on the event loop in the background. This means that a call like
+`await async_info(logger, msg)` doesn't actually wait until the message is logged;
+it puts an event into the queue to be logged in the background at the discretion of
+the event loop's task scheduler. This means that `deregister_async_logger` needs to
+be called on any loggers registered as async before application shutdown in order to
+guarantee all log messages are flushed to their targets. Failing to deregister a
+logger will not cause any problems, but it may result in pending log messages being
+lost.
+
+Similarly to how any logger with any handlers can be used with the sync functions
+for structured logging to any target, any logger can be registered as an async logger by passing
+it into the `register_async_logger` function. That does not mean that registering another library's
+logger will cause that library's logging events to run asynchronously. The asynchronous logging only
+works if the `async_*` functions are used. Registering a logger that you don't control will only add
+overhead due to the empty task taking CPU cycles away from other background work on the event loop.
+
+TODO: Add an example of async usage here.
+
+
+### Async Performance Considerations
+
+Using async logging won't make your logging any faster. Because writing the actual log messages
+is synchronous, excessive logging will still cause a CPU-bound bottleneck in your application.
+However, if you are using asyncio already, using async logging should make your code more efficient
+by giving the event loop a chance to start other background tasks in between registering a logging
+event and actually logging the message. In other words, the main benefit is not to make logging more
+efficient but instead to make sure the event loop can keep as many concurrent tasks running as
+possible.
+
+One thing to consider with respect to the async event loop is the size limit for the logging
+queues. The queues will not block the event loop from
+running other tasks regardless of the size limit, but there are tradeoffs to consider.
+Due to the way
+[`asyncio.Queue`](https://docs.python.org/3/library/asyncio-queue.html#asyncio.Queue)
+works, when the queue is full, it will continue to pass execution to other tasks until
+an item is removed from the queue. This means that in situations where the application is
+performing excessive logging due to some unforseen usage pattern or a programming oversight, the
+size limit on the queue will help to throttle the CPU usage of the logging events by not continuing
+to enqueue more events until the oldest one is evicted. This will give the event loop more chances
+to start other tasks such as handling a request through the web framework or sending an async API
+response to the frontend. The logging events will still hog the CPU while they are running, but
+the size limit maximizes the chances the application has to start other IO-bound tasks in between
+logging events. The flipside of this is that if the async logging call is happening inside a handler
+for a request or before sending a response to the client, then that entire coroutine will wait until
+there is space in the queue to add another logging event. For this reason, some applications may
+want to use a large size limit for logging queues depending on their needs, but it is very unlikely
+that the wait time for a queue eviction would result in a more significant slowdown than the CPU
+load that an unbounded queue would allow the logging events to accumulate.
+
+When in doubt, profile.
+"""
+
+import asyncio
+import datetime
+import json
+import logging
+import os
+import traceback
+from enum import IntEnum
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+)
+
+__VERSION__ = "1.0.0"
+
+
+_string_to_log_level_map = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
+_log_level_to_string_map = {
+    logging.DEBUG: "DEBUG",
+    logging.INFO: "INFO",
+    logging.WARNING: "WARNING",
+    logging.ERROR: "ERROR",
+    logging.CRITICAL: "CRITICAL",
+}
+
+
+class Level(IntEnum):
+    """The stdlib `logging` levels are module-level constants, but there
+    is no containing type or enum for them, so type annotations and documentation
+    is annoying. This enum wraps the stdlib's logging levels for easier documentation
+    and type checking."""
+
+    DEBUG = logging.DEBUG
+    INFO = logging.INFO
+    WARNING = logging.WARNING
+    ERROR = logging.ERROR
+    CRITICAL = logging.CRITICAL
+
+
+def load_env(filepath: str | Path = ".env") -> None:
+    """Read the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars from `filepath`.
+
+    This function overwrites the relevant env vars in the python environment.
+    See: [`os.environ`](https://docs.python.org/3/library/os.html#os.environ)
+
+    Only the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars are overwritten. This function
+    will not interfere with any other env vars you have set.
+
+    The format for the file at `filepath` is `KEY=value` just like any standard .env file.
+
+    Raises:
+        RuntimeError:
+            If `GRAMMLOG_DIR` or `DEFAULT_GRAMMLOG_LEVEL` keys are not present in the file.
+    """
+
+    env_data = Path(filepath).read_text()
+    env_lines = [line.split("=", maxsplit=1) for line in env_data.split("\n")]
+    parsed_env = {k: v for k, v in env_lines if k in ["GRAMMLOG_DIR", "DEFAULT_GRAMMLOG_LEVEL"]}
+
+    env = {
+        "GRAMMLOG_DIR": parsed_env.get("GRAMMLOG_DIR", ""),
+        "DEFAULT_GRAMMLOG_LEVEL": parsed_env.get("DEFAULT_GRAMMLOG_LEVEL", ""),
+    }
+    env_errs = [k for k, v in env.items() if v == ""]
+    if env_errs:
+        raise RuntimeError(f"Missing required env vars: {', '.join(env_errs)}")
+    os.environ["GRAMMLOG_DIR"] = env["GRAMMLOG_DIR"]
+    os.environ["DEFAULT_GRAMMLOG_LEVEL"] = env["DEFAULT_GRAMMLOG_LEVEL"]
+
+
+def set_env(grammlog_dir: str | Path, default_grammlog_level: Level) -> None:
+    """Explicitly set the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars without
+    loading them from a file.
+
+    Overwrites the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` vars in the global environment.
+    See: [`os.environ`](https://docs.python.org/3/library/os.html#os.environ)
+    """
+
+    os.environ["GRAMMLOG_DIR"] = str(Path(grammlog_dir))
+    os.environ["DEFAULT_GRAMMLOG_LEVEL"] = _log_level_to_string_map[default_grammlog_level]
+
+
+def make_logger(
+    log_name: str,
+    size_limit: int = 1024 * 1024 * 4,
+    log_dir: str | Path | None = None,
+    log_level: Level | None = None,
+) -> logging.Logger:
+    """Create and return a rotating file-based logger.
+
+    This function is idempotent.
+
+    Uses [`getLogger`](https://docs.python.org/3/library/logging.html#logging.getLogger)
+    to register/retrieve the logger and adds a
+    [`RotatingFileHandler`](https://docs.python.org/3/library/logging.handlers.html#logging.handlers.RotatingFileHandler)
+    with four rotating backups if one has not been registered already.
+
+    Args:
+        log_name:
+            The logger name passed to `getLogger`. Also determines the log filename.
+            The log files for this logger will be written to `{log_dir}/{log_name}.log`.
+        size_limit:
+            The total size limit for this logger in bytes.
+            This value will be divided by 4 to give the size of each rotating log file.
+            Default is 1024 * 1024 * 4 (~4mb), which gives four rotating 1mb log files.
+            The default size limits are fairly small since this is a per-logger value.
+            Be careful when using a large `size_limit` if you create several different
+            loggers. Especially if you are in a server environment.
+        log_dir:
+            The parent directory to store the rotating log files.
+            If `None` or not provided, then this value will be read from the `GRAMMLOG_DIR`
+            environment variable.
+            The directory is created if it does not exist.
+        log_level:
+            The logging level to set this logger to.
+            If `None` or not provided, then this value will be read from the `GRAMMLOG_LEVEL`
+            environment variable if it is present with fallback to the `DEFAULT_GRAMMLOG_LEVEL`
+            environment variable.
+            This allows complex applications such as web servers to use a default logging
+            configuration with the ability to override the level on the commandline.
+            For example, the application could read a `.env` file with
+
+                DEFAULT_GRAMMLOG_LEVEL=ERROR
+
+            in production but have a cronjob with
+
+                @daily GRAMMLOG_LEVEL=INFO python scheduled_maintenance_script.py
+
+            so that more information is logged for the scheduled maintenance tasks
+            compared to the regular application usage.
+
+    Returns:
+        The newly created or previously configured Logger instance.
+    """
+
+    # TODO: This function is intended to be idempotent, but the logic of the
+    # handler setup is not. If a caller calls this function with the same `logger_name`, but
+    # different `size_limit`s then the second call will return the first logger unchanged.
+    # I need to think about how I want to resolve this. The current behavior is probably fine
+    # since this is just a convenience function, so changing a handler should probably be
+    # done manually. But I still need to put some thought into this and at least document this
+    # behavior more clearly.
+
+    if log_dir is None:
+        if "GRAMMLOG_DIR" not in os.environ:
+            raise RuntimeError(
+                "make_logger requires the 'GRAMMLOG_DIR' env var to be set if no \
+`log_dir` is provided."
+            )
+        log_dir = Path(os.environ["GRAMMLOG_DIR"])
+    else:
+        log_dir = Path(log_dir)
+    if log_level is None:
+        log_level_str = os.environ.get(
+            "GRAMMLOG_LEVEL", os.environ.get("DEFAULT_GRAMMLOG_LEVEL", "")
+        )
+        if log_level_str == "":
+            raise RuntimeError(
+                "make_logger requires the 'DEFAULT_GRAMMLOG_LEVEL' or \
+'GRAMMLOG_LEVEL' env vars to be set if no `log_level` is provided."
+            )
+        logging_level = _string_to_log_level_map[log_level_str]
+    else:
+        logging_level = log_level.value
+
+    if not log_dir.exists():
+        log_dir.mkdir(parents=True)
+
+    logger = logging.getLogger(log_name)
+    logger.setLevel(logging_level)
+
+    if not logger.handlers:
+        log_handler = RotatingFileHandler(
+            filename=log_dir / f"{log_name}.log",
+            mode="a",
+            encoding="utf-8",
+            maxBytes=int(size_limit / 4),
+            backupCount=4,
+        )
+        log_handler.setLevel(logging_level)
+        logger.addHandler(log_handler)
+
+    return logger
+
+
+def _ensure_serializable(payload: dict[str, Any]) -> dict[str, str | dict]:
+    # Convert non-json serializable values to strings.
+    # This is recursive, so it could fail if the provided dict is deeply nested.
+    # This should only happen if the application exposes logging to user-input and
+    # allows a user to construct a malicious payload.
+    return {
+        k: (_ensure_serializable(v) if isinstance(v, dict) else str(v)) for k, v in payload.items()
+    }
+
+
+def _jsonify(payload: dict[str, Any]) -> str:
+    try:
+        return json.dumps(payload)
+    except TypeError:
+        return json.dumps(_ensure_serializable(payload))
+
+
+def _build_entry(
+    level: str,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+    *,
+    timestamp_override: datetime.datetime | None = None,
+) -> str:
+    # Construct the actual structured log line.
+
+    payload = {"msg": msg, **details}
+
+    payload["timestamp"] = (
+        datetime.datetime.now(datetime.timezone.utc).timestamp()
+        if timestamp_override is None
+        else timestamp_override.timestamp()
+    )
+    payload["level"] = level
+    if err is not None:
+        payload["err"] = repr(err)
+        payload["traceback"] = "".join(traceback.format_exception(err))
+    return _jsonify(payload)
+
+
+def _debug(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+    *,
+    timestamp_override: datetime.datetime | None = None,
+) -> None:
+
+    entry = _build_entry("DEBUG", msg, details, err, timestamp_override=timestamp_override)
+    logger.debug(entry)
+
+
+def debug(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+) -> None:
+    """Wraps the
+    [`logging.Logger.debug`](https://docs.python.org/3/library/logging.html#logging.Logger.debug)
+    function to write a JSON-formatted string instead of the default text format.
+
+    Each call to this function will write a single JSON object as a new line in the log file.
+    (JSONL)
+
+    Args:
+        See: [Structured Data](#structured-data)
+    """
+
+    _debug(logger, msg, details, err)
+
+
+def _info(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+    *,
+    timestamp_override: datetime.datetime | None = None,
+) -> None:
+
+    entry = _build_entry("INFO", msg, details, err, timestamp_override=timestamp_override)
+    logger.info(entry)
+
+
+def info(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+) -> None:
+    """Wraps the
+    [`logging.Logger.info`](https://docs.python.org/3/library/logging.html#logging.Logger.info)
+    function to write a JSON-formatted string instead of the default text format.
+
+    Each call to this function will write a single JSON object as a new line in the log file.
+    (JSONL)
+
+    Args:
+        See: [Structured Data](#structured-data)
+    """
+
+    _info(logger, msg, details, err)
+
+
+def _warning(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+    *,
+    timestamp_override: datetime.datetime | None = None,
+) -> None:
+
+    entry = _build_entry("WARNING", msg, details, err, timestamp_override=timestamp_override)
+    logger.warning(entry)
+
+
+def warning(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+) -> None:
+    """Wraps the
+    [`logging.Logger.warning`](https://docs.python.org/3/library/logging.html#logging.Logger.warning)
+    function to write a JSON-formatted string instead of the default text format.
+
+    Each call to this function will write a single JSON object as a new line in the log file.
+    (JSONL)
+
+    Args:
+        See: [Structured Data](#structured-data)
+    """
+
+    _warning(logger, msg, details, err)
+
+
+def _error(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+    *,
+    timestamp_override: datetime.datetime | None = None,
+) -> None:
+
+    entry = _build_entry("ERROR", msg, details, err, timestamp_override=timestamp_override)
+    logger.error(entry)
+
+
+def error(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+) -> None:
+    """Wraps the
+    [`logging.Logger.error`](https://docs.python.org/3/library/logging.html#logging.Logger.error)
+    function to write a JSON-formatted string instead of the default text format.
+
+    Each call to this function will write a single JSON object as a new line in the log file.
+    (JSONL)
+
+    Args:
+        See: [Structured Data](#structured-data)
+    """
+
+    _error(logger, msg, details, err)
+
+
+def _critical(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+    *,
+    timestamp_override: datetime.datetime | None = None,
+) -> None:
+
+    entry = _build_entry("CRITICAL", msg, details, err, timestamp_override=timestamp_override)
+    logger.critical(entry)
+
+
+def critical(
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+) -> None:
+    """Wraps the
+    [`logging.Logger.critical`](https://docs.python.org/3/library/logging.html#logging.Logger.critical)
+    function to write a JSON-formatted string instead of the default text format.
+
+    Each call to this function will write a single JSON object as a new line in the log file.
+    (JSONL)
+
+    Args:
+        See: [Structured Data](#structured-data)
+    """
+
+    _critical(logger, msg, details, err)
+
+
+_QUEUES: dict[str, tuple[asyncio.Task, asyncio.Queue]] = {}
+
+
+async def _logging_loop(q: asyncio.Queue) -> None:
+    # This is where all the magic happens. :)
+    # This coroutine is intended to be wrapped in a task, so that logging events can
+    # be run in the background.
+    # The `async_*` logging functions will `put` a (func, args, kwargs) tuple into
+    # the queue, so that `q.get()` will block until a call to one of the async logging
+    # functions with the logger that this queue is for.
+    # We catch CancelledError so that we can flush the remaining events from the queue
+    # when the wrapping task is cacelled. This simplifies the state management for the
+    # registered queues, but it should also prevent loss of log messages due to an unexpected
+    # cancellation propogation from user code.
+    try:
+        while True:
+            func, args, kwargs = await q.get()
+            func(*args, **kwargs)
+    except asyncio.CancelledError:
+        while not q.empty():
+            func, args, kwargs = await q.get()
+            func(*args, **kwargs)
+        raise
+
+
+def register_async_logger(logger: logging.Logger, max_size: int = 10) -> logging.Logger:
+    """Create an async queue for the provided `logger`.
+
+    Creates a new
+    [`asyncio.Queue`](https://docs.python.org/3/library/asyncio-queue.html#asyncio.Queue)
+    to handle asynchronous logging events.
+
+    Calls to the async logging functions e.g. `await async_debug(logger, msg)` will
+    still perform blocking IO when actually writing to the log file, but by running
+    logging events in an async queue, we give the event loop a chance to start other
+    tasks in the background before we lock up the CPU for writing.
+
+    Args:
+        logger:
+            The logger to create a new queue for.
+        max_size:
+            This is the size limit of the queue. It is passed directly to
+            the constructor for
+            [`asyncio.Queue`](https://docs.python.org/3/library/asyncio-queue.html#asyncio.Queue),
+            so to create an unbounded queue, pass a value <= 0.
+            Note that you probably don't want to create an unbounded queue.
+            See: [Async Performance Considerations](#async-performance-considerations) for details.
+    Raises:
+        ValueError:
+            If a queue has already been registered for this logger.
+            To register a different queue for the same logger, e.g. to change the
+            queue size, you must explicitly call
+
+                await deregister_async_logger(logger)
+
+            first. Otherwise, pending logging events may be lost.
+    Returns:
+        The `logger` unchanged.
+    """
+
+    logger_name = logger.name
+    if logger_name in _QUEUES:
+        raise ValueError(
+            f"Logger {logger_name} already registered to an async queue. \
+If you intended to update the queue size, you must explicitly `deregister_async_logger` \
+before calling this function to register the new queue."
+        )
+
+    q: asyncio.Queue = asyncio.Queue(maxsize=max_size)
+    task = asyncio.create_task(_logging_loop(q))
+    _QUEUES[logger.name] = task, q
+    return logger
+
+
+async def deregister_async_logger(logger: logging.Logger) -> logging.Logger:
+    """Removes a previously registered async queue for `logger`.
+
+    This function must be called before terminating the running python process
+    to ensure that any logging events that have been queued and not executed yet are
+    completed. Failing to await this function before closing an application won't cause
+    any problems, but pending log messages may be lost.
+
+    Raises:
+        ValueError:
+            If a queue is not registered for this logger.
+    Returns:
+        The `logger` unchanged.
+    """
+
+    # Note: We need to remove the queue from _QUEUES before cancelling the task
+    # since a subsequent concurrent call to `register_async_logger`
+    # for the same logger has no reason to wait as long as we keep a reference to the
+    # queue we are removing outside the _QUEUES dict.
+    # Once the queue is empty, we can safely cancel the task and let it exit scope.
+
+    logger_name = logger.name
+    if logger_name not in _QUEUES:
+        raise ValueError(
+            f"Logger {logger_name} is not registered to an async queue. \
+Did you mean to call `register_async_logger`?"
+        )
+
+    task, _ = _QUEUES[logger_name]
+    del _QUEUES[logger_name]
+    # while not q.empty():
+    #     func, args, kwargs = await q.get()
+    #     func(*args, **kwargs)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    return logger
+
+
+async def _async_log_event(
+    sync_log_func: Callable[[logging.Logger, str, dict[str, Any], BaseException | None], None],
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
+) -> None:
+
+    logger_name = logger.name
+    if logger_name not in _QUEUES:
+        raise ValueError(
+            f"Logger {logger_name} is not registered to an async queue. \
+Did you forget to call `register_async_logger(logger)`?"
+        )
+
+    _, q = _QUEUES[logger_name]
+    func, args, kwargs = (
+        sync_log_func,
+        [logger, msg, details, err],
+        {"timestamp_override": datetime.datetime.now(datetime.timezone.utc)},
+    )
+    logging_event = func, args, kwargs
+
+    await q.put(logging_event)
+
+
+async def async_debug(
+    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+) -> None:
+    """Enqueue an asynchronous debug logging event.
+
+    This function registers a future call to `debug` to the async queue to be scheduled on the
+    event loop.
+
+    All arguments are passed to the sync `debug` function as is.
+
+    Raises:
+        ValueError:
+            If there is no queue registered for `logger`.
+    """
+
+    await _async_log_event(_debug, logger, msg, details, err)
+
+
+async def async_info(
+    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+) -> None:
+    """Enqueue an asynchronous info logging event.
+
+    This function registers a future call to `info` to the async queue to be scheduled on the
+    event loop.
+
+    All arguments are passed to the sync `info` function as is.
+
+    Raises:
+        ValueError:
+            If there is no queue registered for `logger`.
+    """
+
+    await _async_log_event(info, logger, msg, details, err)
+
+
+async def async_warning(
+    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+) -> None:
+    """Enqueue an asynchronous warning logging event.
+
+    This function registers a future call to `warning` to the async queue to be scheduled on the
+    event loop.
+
+    All arguments are passed to the sync `warning` function as is.
+
+    Raises:
+        ValueError:
+            If there is no queue registered for `logger`.
+    """
+
+    await _async_log_event(warning, logger, msg, details, err)
+
+
+async def async_error(
+    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+) -> None:
+    """Enqueue an asynchronous error logging event.
+
+    This function registers a future call to `error` to the async queue to be scheduled on the
+    event loop.
+
+    All arguments are passed to the sync `error` function as is.
+
+    Raises:
+        ValueError:
+            If there is no queue registered for `logger`.
+    """
+
+    await _async_log_event(error, logger, msg, details, err)
+
+
+async def async_critical(
+    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+) -> None:
+    """Enqueue an asynchronous critical logging event.
+
+    This function registers a future call to `critical` to the async queue to be scheduled on the
+    event loop.
+
+    All arguments are passed to the sync `critical` function as is.
+
+    Raises:
+        ValueError:
+            If there is no queue registered for `logger`.
+    """
+
+    await _async_log_event(critical, logger, msg, details, err)
