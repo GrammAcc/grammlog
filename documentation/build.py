@@ -4,7 +4,7 @@ import grammlog
 
 readme_heading = """# grammlog\n\nGrammAcc's structured logging.
 
-[API Docs](https://grammacc.github.io/grammlog)
+[Full Documentation](https://grammacc.github.io/grammlog)
 """
 
 doc = grammlog.__doc__

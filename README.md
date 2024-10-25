@@ -2,7 +2,7 @@
 
 GrammAcc's structured logging.
 
-[API Docs](https://grammacc.github.io/grammlog)
+[Full Documentation](https://grammacc.github.io/grammlog)
 
 Pure python package that provides structured logging to JSONL with no dependencies.
 
