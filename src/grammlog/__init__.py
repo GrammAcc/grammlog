@@ -401,6 +401,12 @@ def _ensure_serializable(payload: dict[str, Any]) -> dict[str, str | dict]:
     # This is recursive, so it could fail if the provided dict is deeply nested.
     # This should only happen if the application exposes logging to user-input and
     # allows a user to construct a malicious payload.
+
+    # TODO: There is a bug in this implementation.
+    # It currently calls `str` on *all* values in the payload when json serialization fails, but
+    # it should only call `str` on values that are not serializable.
+    # This can cause problems when parsing the logged data in other environments if an integer gets
+    # serialized as a string for example.
     return {
         k: (_ensure_serializable(v) if isinstance(v, dict) else str(v)) for k, v in payload.items()
     }
