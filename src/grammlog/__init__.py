@@ -214,7 +214,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import (
     Any,
-    Callable,
+    Protocol,
 )
 
 __VERSION__ = "1.0.1"
@@ -712,9 +712,6 @@ Did you mean to call `register_async_logger`?"
 
     task, _ = _QUEUES[logger_name]
     del _QUEUES[logger_name]
-    # while not q.empty():
-    #     func, args, kwargs = await q.get()
-    #     func(*args, **kwargs)
     task.cancel()
     try:
         await task
@@ -723,8 +720,21 @@ Did you mean to call `register_async_logger`?"
     return logger
 
 
+class _SyncLogFunc(Protocol):
+
+    def __call__(
+        self,
+        logger: logging.Logger,
+        msg: str,
+        details: dict[str, Any],
+        err: BaseException | None = None,
+        *,
+        timestamp_override: datetime.datetime | None = None,
+    ) -> None: ...
+
+
 async def _async_log_event(
-    sync_log_func: Callable[[logging.Logger, str, dict[str, Any], BaseException | None], None],
+    sync_log_func: _SyncLogFunc,
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
@@ -741,8 +751,8 @@ Did you forget to call `register_async_logger(logger)`?"
     _, q = _QUEUES[logger_name]
     func, args, kwargs = (
         sync_log_func,
-        [logger, msg, details, err],
-        {"timestamp_override": datetime.datetime.now(datetime.timezone.utc)},
+        [logger, msg, details],
+        {"err": err, "timestamp_override": datetime.datetime.now(datetime.timezone.utc)},
     )
     logging_event = func, args, kwargs
 
@@ -750,7 +760,10 @@ Did you forget to call `register_async_logger(logger)`?"
 
 
 async def async_debug(
-    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous debug logging event.
 
@@ -768,7 +781,10 @@ async def async_debug(
 
 
 async def async_info(
-    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous info logging event.
 
@@ -782,11 +798,14 @@ async def async_info(
             If there is no queue registered for `logger`.
     """
 
-    await _async_log_event(info, logger, msg, details, err)
+    await _async_log_event(_info, logger, msg, details, err)
 
 
 async def async_warning(
-    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous warning logging event.
 
@@ -800,11 +819,14 @@ async def async_warning(
             If there is no queue registered for `logger`.
     """
 
-    await _async_log_event(warning, logger, msg, details, err)
+    await _async_log_event(_warning, logger, msg, details, err)
 
 
 async def async_error(
-    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous error logging event.
 
@@ -818,11 +840,14 @@ async def async_error(
             If there is no queue registered for `logger`.
     """
 
-    await _async_log_event(error, logger, msg, details, err)
+    await _async_log_event(_error, logger, msg, details, err)
 
 
 async def async_critical(
-    logger: logging.Logger, msg: str, details: dict[str, Any] = {}, err: BaseException | None = None
+    logger: logging.Logger,
+    msg: str,
+    details: dict[str, Any] = {},
+    err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous critical logging event.
 
@@ -836,4 +861,4 @@ async def async_critical(
             If there is no queue registered for `logger`.
     """
 
-    await _async_log_event(critical, logger, msg, details, err)
+    await _async_log_event(_critical, logger, msg, details, err)

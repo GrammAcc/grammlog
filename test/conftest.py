@@ -8,7 +8,7 @@ import grammlog
 @pytest.fixture(scope="session", autouse=True)
 def setup_env():
     os.environ["GRAMMLOG_DIR"] = "logs"
-    os.environ["DEFAULT_GRAMMLOG_LEVEL"] = "INFO"
+    os.environ["DEFAULT_GRAMMLOG_LEVEL"] = "DEBUG"
     grammlog.make_logger("default")
 
 
