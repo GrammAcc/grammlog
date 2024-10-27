@@ -460,6 +460,7 @@ def debug(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
@@ -493,6 +494,7 @@ def info(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
@@ -526,6 +528,7 @@ def warning(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
@@ -559,6 +562,7 @@ def error(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
@@ -592,6 +596,7 @@ def critical(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
@@ -763,6 +768,7 @@ async def async_debug(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous debug logging event.
@@ -784,6 +790,7 @@ async def async_info(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous info logging event.
@@ -805,6 +812,7 @@ async def async_warning(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous warning logging event.
@@ -826,6 +834,7 @@ async def async_error(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous error logging event.
@@ -847,6 +856,7 @@ async def async_critical(
     logger: logging.Logger,
     msg: str,
     details: dict[str, Any] = {},
+    *,
     err: BaseException | None = None,
 ) -> None:
     """Enqueue an asynchronous critical logging event.
