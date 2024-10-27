@@ -4,7 +4,7 @@ if __name__ != "__main__":
 import http.server
 from pathlib import Path
 
-siteroot = Path(Path(__file__).parent, "site")
+siteroot = Path(Path(__file__).parent.parent, "docs")
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
