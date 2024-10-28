@@ -217,7 +217,7 @@ from typing import (
     Protocol,
 )
 
-__VERSION__ = "1.1.0"
+__VERSION__ = "1.2.0"
 
 
 _string_to_log_level_map = {
