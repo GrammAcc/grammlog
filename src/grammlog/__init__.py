@@ -313,8 +313,8 @@ def make_logger(
     Raises:
         RuntimeError:
             If `log_dir` is not provided or is `None` and `GRAMMLOG_DIR` is not in the env.
-            If `log_level` is not provided or is `None` and
-            neither `DEFAULT_GRAMMLOG_LEVEL` nor `GRAMMLOG_LEVEL` is in the env.
+            If `log_level` is not provided or is `None` and `DEFAULT_GRAMMLOG_LEVEL` is not
+            in the env.
     Returns:
         The newly created or previously configured Logger instance.
     """
@@ -329,22 +329,14 @@ def make_logger(
 
     if log_dir is None:
         if "GRAMMLOG_DIR" not in os.environ:
-            raise RuntimeError(
-                "make_logger requires the 'GRAMMLOG_DIR' env var to be set if no \
-`log_dir` is provided."
-            )
+            raise RuntimeError("Missing env var: 'GRAMMLOG_DIR'.")
         log_dir = Path(os.environ["GRAMMLOG_DIR"])
     else:
         log_dir = Path(log_dir)
     if log_level is None:
-        log_level_str = os.environ.get(
-            "GRAMMLOG_LEVEL", os.environ.get("DEFAULT_GRAMMLOG_LEVEL", "")
-        )
-        if log_level_str == "":
-            raise RuntimeError(
-                "make_logger requires the 'DEFAULT_GRAMMLOG_LEVEL' or \
-'GRAMMLOG_LEVEL' env vars to be set if no `log_level` is provided."
-            )
+        if "DEFAULT_GRAMMLOG_LEVEL" not in os.environ:
+            raise RuntimeError("Missing env var: 'DEFAULT_GRAMMLOG_LEVEL'.")
+        log_level_str = os.environ.get("GRAMMLOG_LEVEL", os.environ["DEFAULT_GRAMMLOG_LEVEL"])
         logging_level = _string_to_log_level_map[log_level_str]
     else:
         logging_level = log_level.value

@@ -19,3 +19,15 @@ def test_log_level_override(fixt_default_logger, fixt_random_logger):
     new_logger, rand_name = fixt_random_logger()
     grammlog.debug(new_logger, "test message")
     assert os.path.getsize(f"logs/{rand_name}.log") == 0
+
+
+@pytest.mark.usefixtures("reset_env")
+@pytest.mark.parametrize("env_var", ["GRAMMLOG_DIR", "DEFAULT_GRAMMLOG_LEVEL"])
+def test_runtime_error_missing_env_var(env_var):
+    """The `make_logger` function should raise a RuntimeError if the required
+    env vars are not defined and the corresponding override arguments are not provided
+    to the function call."""
+
+    del os.environ[env_var]
+    with pytest.raises(RuntimeError, match="Missing env var:"):
+        grammlog.make_logger("loggername")
