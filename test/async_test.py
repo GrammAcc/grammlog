@@ -84,3 +84,11 @@ async def test_deregister_async_logger_value_error_when_not_registered(fixt_defa
 
     with pytest.raises(ValueError):
         await grammlog.deregister_async_logger(fixt_default_logger)
+
+
+def test_register_async_logger_runtime_error_when_no_running_loop(fixt_default_logger):
+    """The `register_async_logger` function is synchronous, but it creates a background
+    task, so it needs a running event loop."""
+
+    with pytest.raises(RuntimeError, match="register_async_logger requires a running event loop"):
+        grammlog.register_async_logger(fixt_default_logger)

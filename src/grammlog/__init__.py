@@ -662,9 +662,19 @@ def register_async_logger(logger: logging.Logger, max_size: int = 10) -> logging
                 await deregister_async_logger(logger)
 
             first. Otherwise, pending logging events may be lost.
+        RuntimeError:
+            If not called from within a running event loop.
+            Even though this is a synchronous function, it creates an async
+            task in the running loop, so it can only be called from within
+            a running event loop e.g. a coroutine.
     Returns:
         The `logger` unchanged.
     """
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        raise RuntimeError("register_async_logger requires a running event loop.") from None
 
     logger_name = logger.name
     if logger_name in _QUEUES:
