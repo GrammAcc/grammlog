@@ -29,11 +29,13 @@ def setup_env():
 @pytest.fixture
 def fixt_default_logger():
 
+    logger = grammlog.make_logger("default")
+
     with open("logs/default.log", "w"):
         # Truncate log file.
         pass
 
-    return grammlog.make_logger("default")
+    return logger
 
 
 @pytest.fixture
