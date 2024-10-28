@@ -69,8 +69,11 @@ typecheck = "mypy -p grammlog"
 format = ["isort --atomic .", "black ."]
 lint = "flake8 src test documentation"
 test = "hatch run +py=3.12 test:all {args}"
-cov = "hatch run test:cov"
-doctest = ["python -m doctest src/grammlog.py", "python -m doctest README.md"]
+cov = "hatch run +py=3.12 test:cov"
+doctest = [
+    "python -m doctest src/grammlog.py {args}",
+    "python -m doctest README.md {args}",
+]
 ci = [
     "hatch run test:all",
     "- hatch run cov",

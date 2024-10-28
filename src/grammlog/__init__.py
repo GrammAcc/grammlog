@@ -138,6 +138,7 @@ There are async versions of each of the logging functions as well as
 - `async_critical`
 - `register_async_logger`
 - `deregister_async_logger`
+- `deregister_all_async_loggers`
 
 The async logging functions only work with a logger that has been registered.
 This is because the logging calls themselves are synchronous, and they
@@ -158,7 +159,9 @@ the event loop's task scheduler. This means that `deregister_async_logger` needs
 be called on any loggers registered as async before application shutdown in order to
 guarantee all log messages are flushed to their targets. Failing to deregister a
 logger will not cause any problems, but it may result in pending log messages being
-lost.
+lost. To simplify cleanup, the `deregister_all_async_loggers` function can be used to
+deregister all registered async loggers during the application's shutdown procedure
+without needing a reference to each individual logger in that scope.
 
 Similarly to how any logger with any handlers can be used with the sync functions
 for structured logging to any target, any logger can be registered as an async logger by passing
@@ -217,7 +220,7 @@ from typing import (
     Protocol,
 )
 
-__VERSION__ = "1.1.0"
+__VERSION__ = "1.2.0"
 
 
 _string_to_log_level_map = {
@@ -248,37 +251,6 @@ class Level(IntEnum):
     WARNING = logging.WARNING
     ERROR = logging.ERROR
     CRITICAL = logging.CRITICAL
-
-
-def load_env(filepath: str | Path = ".env") -> None:
-    """Read the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars from `filepath`.
-
-    This function overwrites the relevant env vars in the python environment.
-    See: [`os.environ`](https://docs.python.org/3/library/os.html#os.environ)
-
-    Only the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars are overwritten. This function
-    will not interfere with any other env vars you have set.
-
-    The format for the file at `filepath` is `KEY=value` just like any standard .env file.
-
-    Raises:
-        RuntimeError:
-            If `GRAMMLOG_DIR` or `DEFAULT_GRAMMLOG_LEVEL` keys are not present in the file.
-    """
-
-    env_data = Path(filepath).read_text()
-    env_lines = [line.split("=", maxsplit=1) for line in env_data.split("\n")]
-    parsed_env = {k: v for k, v in env_lines if k in ["GRAMMLOG_DIR", "DEFAULT_GRAMMLOG_LEVEL"]}
-
-    env = {
-        "GRAMMLOG_DIR": parsed_env.get("GRAMMLOG_DIR", ""),
-        "DEFAULT_GRAMMLOG_LEVEL": parsed_env.get("DEFAULT_GRAMMLOG_LEVEL", ""),
-    }
-    env_errs = [k for k, v in env.items() if v == ""]
-    if env_errs:
-        raise RuntimeError(f"Missing required env vars: {', '.join(env_errs)}")
-    os.environ["GRAMMLOG_DIR"] = env["GRAMMLOG_DIR"]
-    os.environ["DEFAULT_GRAMMLOG_LEVEL"] = env["DEFAULT_GRAMMLOG_LEVEL"]
 
 
 def set_env(grammlog_dir: str | Path, default_grammlog_level: Level) -> None:
@@ -341,7 +313,12 @@ def make_logger(
 
             so that more information is logged for the scheduled maintenance tasks
             compared to the regular application usage.
-
+    Raises:
+        RuntimeError:
+            If
+              - `log_dir` is not provided or is `None` and `GRAMMLOG_DIR` is not in the env.
+              - `log_level` is not provided or is `None` and `DEFAULT_GRAMMLOG_LEVEL` is not
+                in the env.
     Returns:
         The newly created or previously configured Logger instance.
     """
@@ -356,22 +333,14 @@ def make_logger(
 
     if log_dir is None:
         if "GRAMMLOG_DIR" not in os.environ:
-            raise RuntimeError(
-                "make_logger requires the 'GRAMMLOG_DIR' env var to be set if no \
-`log_dir` is provided."
-            )
+            raise RuntimeError("Missing env var: 'GRAMMLOG_DIR'.")
         log_dir = Path(os.environ["GRAMMLOG_DIR"])
     else:
         log_dir = Path(log_dir)
     if log_level is None:
-        log_level_str = os.environ.get(
-            "GRAMMLOG_LEVEL", os.environ.get("DEFAULT_GRAMMLOG_LEVEL", "")
-        )
-        if log_level_str == "":
-            raise RuntimeError(
-                "make_logger requires the 'DEFAULT_GRAMMLOG_LEVEL' or \
-'GRAMMLOG_LEVEL' env vars to be set if no `log_level` is provided."
-            )
+        if "DEFAULT_GRAMMLOG_LEVEL" not in os.environ:
+            raise RuntimeError("Missing env var: 'DEFAULT_GRAMMLOG_LEVEL'.")
+        log_level_str = os.environ.get("GRAMMLOG_LEVEL", os.environ["DEFAULT_GRAMMLOG_LEVEL"])
         logging_level = _string_to_log_level_map[log_level_str]
     else:
         logging_level = log_level.value
@@ -464,7 +433,7 @@ def debug(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.debug`](https://docs.python.org/3/library/logging.html#logging.Logger.debug)
+    [`logging.Logger.debug`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -498,7 +467,7 @@ def info(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.info`](https://docs.python.org/3/library/logging.html#logging.Logger.info)
+    [`logging.Logger.info`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -532,7 +501,7 @@ def warning(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.warning`](https://docs.python.org/3/library/logging.html#logging.Logger.warning)
+    [`logging.Logger.warning`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -566,7 +535,7 @@ def error(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.error`](https://docs.python.org/3/library/logging.html#logging.Logger.error)
+    [`logging.Logger.error`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -600,7 +569,7 @@ def critical(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.critical`](https://docs.python.org/3/library/logging.html#logging.Logger.critical)
+    [`logging.Logger.critical`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -623,19 +592,12 @@ async def _logging_loop(q: asyncio.Queue) -> None:
     # The `async_*` logging functions will `put` a (func, args, kwargs) tuple into
     # the queue, so that `q.get()` will block until a call to one of the async logging
     # functions with the logger that this queue is for.
-    # We catch CancelledError so that we can flush the remaining events from the queue
-    # when the wrapping task is cacelled. This simplifies the state management for the
-    # registered queues, but it should also prevent loss of log messages due to an unexpected
-    # cancellation propogation from user code.
-    try:
-        while True:
-            func, args, kwargs = await q.get()
-            func(*args, **kwargs)
-    except asyncio.CancelledError:
-        while not q.empty():
-            func, args, kwargs = await q.get()
-            func(*args, **kwargs)
-        raise
+    # The infinite loop will break when the wrapping task is cancelled due to the
+    # asyncio.CancelledError being raised.
+
+    while True:
+        func, args, kwargs = await q.get()
+        func(*args, **kwargs)
 
 
 def register_async_logger(logger: logging.Logger, max_size: int = 10) -> logging.Logger:
@@ -669,9 +631,19 @@ def register_async_logger(logger: logging.Logger, max_size: int = 10) -> logging
                 await deregister_async_logger(logger)
 
             first. Otherwise, pending logging events may be lost.
+        RuntimeError:
+            If not called from within a running event loop.
+            Even though this is a synchronous function, it creates an async
+            task in the running loop, so it can only be called from within
+            a running event loop e.g. a coroutine.
     Returns:
         The `logger` unchanged.
     """
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        raise RuntimeError("register_async_logger requires a running event loop.") from None
 
     logger_name = logger.name
     if logger_name in _QUEUES:
@@ -685,6 +657,30 @@ before calling this function to register the new queue."
     task = asyncio.create_task(_logging_loop(q))
     _QUEUES[logger.name] = task, q
     return logger
+
+
+async def _deregister(logger_name: str) -> None:
+    # Remove logger with `logger_name` from the `_QUEUES` registry.
+    # `logger_name` is assumed to exist in the `_QUEUES` registry, so if `logger_name`
+    # is user-provided, it needs to be checked before calling this function.
+
+    task, q = _QUEUES[logger_name]
+    # We remove the queue before we cancel and cleanup the task
+    # because we want to ensure that all pending log messages are
+    # flushed, and if we flush the current queue before deleting it
+    # from the `_QUEUES` registry, then we could have a race condition
+    # where an async logging function is called in another coroutine
+    # between the flush and the delete, which would result in that
+    # message being lost.
+    del _QUEUES[logger_name]
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        # Flush remaining log events from the queue.
+        while not q.empty():
+            func, args, kwargs = await q.get()
+            func(*args, **kwargs)
 
 
 async def deregister_async_logger(logger: logging.Logger) -> logging.Logger:
@@ -702,12 +698,6 @@ async def deregister_async_logger(logger: logging.Logger) -> logging.Logger:
         The `logger` unchanged.
     """
 
-    # Note: We need to remove the queue from _QUEUES before cancelling the task
-    # since a subsequent concurrent call to `register_async_logger`
-    # for the same logger has no reason to wait as long as we keep a reference to the
-    # queue we are removing outside the _QUEUES dict.
-    # Once the queue is empty, we can safely cancel the task and let it exit scope.
-
     logger_name = logger.name
     if logger_name not in _QUEUES:
         raise ValueError(
@@ -715,14 +705,40 @@ async def deregister_async_logger(logger: logging.Logger) -> logging.Logger:
 Did you mean to call `register_async_logger`?"
         )
 
-    task, _ = _QUEUES[logger_name]
-    del _QUEUES[logger_name]
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    await _deregister(logger_name)
     return logger
+
+
+async def deregister_all_async_loggers() -> None:
+    """Calls `deregister_async_logger` on all registered loggers.
+
+    This can be used to cleanup resources before application shutdown without
+    needing to keep a reference to every logger in the application.
+
+    Example:
+        >>> import asyncio
+        >>> import grammlog
+        >>> loggers = [
+        ...     grammlog.make_logger(
+        ...         f"async_{name}", log_dir="logs", log_level=grammlog.Level.DEBUG
+        ...     )
+        ...     for name in ["some", "variable", "list"]
+        ... ]
+        >>> async def log_stuff():
+        ...     for logger in loggers:
+        ...         grammlog.register_async_logger(logger)
+        ...     await grammlog.async_debug(loggers[0], "some message")
+        >>> async def shutdown():
+        ...     await grammlog.deregister_all_async_loggers()
+        >>> async def main():
+        ...     await log_stuff()
+        ...     await shutdown()
+        >>> asyncio.run(main())
+    """
+
+    logger_names = [i for i in _QUEUES.keys()]  # Copy.
+    for logger_name in logger_names:
+        await _deregister(logger_name)
 
 
 class _SyncLogFunc(Protocol):
