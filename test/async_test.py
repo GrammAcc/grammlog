@@ -9,6 +9,14 @@ import pytest
 
 import grammlog
 
+
+@pytest.fixture(autouse=True)
+async def reset_async_loggers():
+    await grammlog.deregister_all_async_loggers()
+    yield None
+    await grammlog.deregister_all_async_loggers()
+
+
 cases = [
     (grammlog.async_debug, grammlog.Level.DEBUG),
     (grammlog.async_info, grammlog.Level.INFO),
@@ -59,3 +67,20 @@ async def test_async_timestamp(async_log_func, log_level, fixt_default_logger):
     data = json.loads(log_text)
 
     assert data["timestamp"] < later_timestamp - 0.4
+
+
+async def test_register_async_logger_value_error_when_already_registered(fixt_default_logger):
+    """The `register_async_logger` function should raise a ValueError if the
+    provided logger is already registered."""
+
+    grammlog.register_async_logger(fixt_default_logger)
+    with pytest.raises(ValueError):
+        grammlog.register_async_logger(fixt_default_logger)
+
+
+async def test_deregister_async_logger_value_error_when_not_registered(fixt_default_logger):
+    """The `deregister_async_logger` function should raise a ValueError if the
+    provided logger is NOT already registered."""
+
+    with pytest.raises(ValueError):
+        await grammlog.deregister_async_logger(fixt_default_logger)

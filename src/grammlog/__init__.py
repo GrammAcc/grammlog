@@ -680,6 +680,30 @@ before calling this function to register the new queue."
     return logger
 
 
+async def _deregister(logger_name: str) -> None:
+    # Remove logger with `logger_name` from the `_QUEUES` registry.
+    # `logger_name` is assumed to exist in the `_QUEUES` registry, so if `logger_name`
+    # is user-provided, it needs to be checked before calling this function.
+
+    task, q = _QUEUES[logger_name]
+    # We remove the queue before we cancel and cleanup the task
+    # because we want to ensure that all pending log messages are
+    # flushed, and if we flush the current queue before deleting it
+    # from the `_QUEUES` registry, then we could have a race condition
+    # where an async logging function is called in another coroutine
+    # between the flush and the delete, which would result in that
+    # message being lost.
+    del _QUEUES[logger_name]
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        # Flush remaining log events from the queue.
+        while not q.empty():
+            func, args, kwargs = await q.get()
+            func(*args, **kwargs)
+
+
 async def deregister_async_logger(logger: logging.Logger) -> logging.Logger:
     """Removes a previously registered async queue for `logger`.
 
@@ -702,24 +726,40 @@ async def deregister_async_logger(logger: logging.Logger) -> logging.Logger:
 Did you mean to call `register_async_logger`?"
         )
 
-    # We remove the queue before we cancel and cleanup the task
-    # because we want to ensure that all pending log messages are
-    # flushed, and if we flush the current queue before deleting it
-    # from the `_QUEUES` registry, then we could have a race condition
-    # where an async logging function is called in another coroutine
-    # between the flush and the delete, which would result in that
-    # message being lost.
-    task, q = _QUEUES[logger_name]
-    del _QUEUES[logger_name]
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        # Flush remaining log events from the queue.
-        while not q.empty():
-            func, args, kwargs = await q.get()
-            func(*args, **kwargs)
+    await _deregister(logger_name)
     return logger
+
+
+async def deregister_all_async_loggers() -> None:
+    """Calls `deregister_async_logger` on all registered loggers.
+
+    This can be used to cleanup resources before application shutdown without
+    needing to keep a reference to every logger in the application.
+
+    Example:
+        >>> import asyncio
+        >>> import grammlog
+        >>> loggers = [
+        ...     grammlog.make_logger(
+        ...         f"async_{name}", log_dir="logs", log_level=grammlog.Level.DEBUG
+        ...     )
+        ...     for name in ["some", "variable", "list"]
+        ... ]
+        >>> async def log_stuff():
+        ...     for logger in loggers:
+        ...         grammlog.register_async_logger(logger)
+        ...     await grammlog.async_debug(loggers[0], "some message")
+        >>> async def shutdown():
+        ...     await grammlog.deregister_all_async_loggers()
+        >>> async def main():
+        ...     await log_stuff()
+        ...     await shutdown()
+        >>> asyncio.run(main())
+    """
+
+    logger_names = [i for i in _QUEUES.keys()]  # Copy.
+    for logger_name in logger_names:
+        await _deregister(logger_name)
 
 
 class _SyncLogFunc(Protocol):
