@@ -138,6 +138,7 @@ There are async versions of each of the logging functions as well as
 - `async_critical`
 - `register_async_logger`
 - `deregister_async_logger`
+- `deregister_all_async_loggers`
 
 The async logging functions only work with a logger that has been registered.
 This is because the logging calls themselves are synchronous, and they
@@ -158,7 +159,9 @@ the event loop's task scheduler. This means that `deregister_async_logger` needs
 be called on any loggers registered as async before application shutdown in order to
 guarantee all log messages are flushed to their targets. Failing to deregister a
 logger will not cause any problems, but it may result in pending log messages being
-lost.
+lost. To simplify cleanup, the `deregister_all_async_loggers` function can be used to
+deregister all registered async loggers during the application's shutdown procedure
+without needing a reference to each individual logger in that scope.
 
 Similarly to how any logger with any handlers can be used with the sync functions
 for structured logging to any target, any logger can be registered as an async logger by passing
@@ -312,9 +315,10 @@ def make_logger(
             compared to the regular application usage.
     Raises:
         RuntimeError:
-            If `log_dir` is not provided or is `None` and `GRAMMLOG_DIR` is not in the env.
-            If `log_level` is not provided or is `None` and `DEFAULT_GRAMMLOG_LEVEL` is not
-            in the env.
+            If
+              - `log_dir` is not provided or is `None` and `GRAMMLOG_DIR` is not in the env.
+              - `log_level` is not provided or is `None` and `DEFAULT_GRAMMLOG_LEVEL` is not
+                in the env.
     Returns:
         The newly created or previously configured Logger instance.
     """
@@ -429,7 +433,7 @@ def debug(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.debug`](https://docs.python.org/3/library/logging.html#logging.Logger.debug)
+    [`logging.Logger.debug`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -463,7 +467,7 @@ def info(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.info`](https://docs.python.org/3/library/logging.html#logging.Logger.info)
+    [`logging.Logger.info`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -497,7 +501,7 @@ def warning(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.warning`](https://docs.python.org/3/library/logging.html#logging.Logger.warning)
+    [`logging.Logger.warning`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -531,7 +535,7 @@ def error(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.error`](https://docs.python.org/3/library/logging.html#logging.Logger.error)
+    [`logging.Logger.error`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.
@@ -565,7 +569,7 @@ def critical(
     err: BaseException | None = None,
 ) -> None:
     """Wraps the
-    [`logging.Logger.critical`](https://docs.python.org/3/library/logging.html#logging.Logger.critical)
+    [`logging.Logger.critical`](https://docs.python.org/3/library/logging.html#logging.Logger)
     function to write a JSON-formatted string instead of the default text format.
 
     Each call to this function will write a single JSON object as a new line in the log file.

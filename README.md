@@ -143,6 +143,7 @@ There are async versions of each of the logging functions as well as
 - `async_critical`
 - `register_async_logger`
 - `deregister_async_logger`
+- `deregister_all_async_loggers`
 
 The async logging functions only work with a logger that has been registered.
 This is because the logging calls themselves are synchronous, and they
@@ -163,7 +164,9 @@ the event loop's task scheduler. This means that `deregister_async_logger` needs
 be called on any loggers registered as async before application shutdown in order to
 guarantee all log messages are flushed to their targets. Failing to deregister a
 logger will not cause any problems, but it may result in pending log messages being
-lost.
+lost. To simplify cleanup, the `deregister_all_async_loggers` function can be used to
+deregister all registered async loggers during the application's shutdown procedure
+without needing a reference to each individual logger in that scope.
 
 Similarly to how any logger with any handlers can be used with the sync functions
 for structured logging to any target, any logger can be registered as an async logger by passing
