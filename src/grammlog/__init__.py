@@ -250,37 +250,6 @@ class Level(IntEnum):
     CRITICAL = logging.CRITICAL
 
 
-def load_env(filepath: str | Path = ".env") -> None:
-    """Read the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars from `filepath`.
-
-    This function overwrites the relevant env vars in the python environment.
-    See: [`os.environ`](https://docs.python.org/3/library/os.html#os.environ)
-
-    Only the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars are overwritten. This function
-    will not interfere with any other env vars you have set.
-
-    The format for the file at `filepath` is `KEY=value` just like any standard .env file.
-
-    Raises:
-        RuntimeError:
-            If `GRAMMLOG_DIR` or `DEFAULT_GRAMMLOG_LEVEL` keys are not present in the file.
-    """
-
-    env_data = Path(filepath).read_text()
-    env_lines = [line.split("=", maxsplit=1) for line in env_data.split("\n")]
-    parsed_env = {k: v for k, v in env_lines if k in ["GRAMMLOG_DIR", "DEFAULT_GRAMMLOG_LEVEL"]}
-
-    env = {
-        "GRAMMLOG_DIR": parsed_env.get("GRAMMLOG_DIR", ""),
-        "DEFAULT_GRAMMLOG_LEVEL": parsed_env.get("DEFAULT_GRAMMLOG_LEVEL", ""),
-    }
-    env_errs = [k for k, v in env.items() if v == ""]
-    if env_errs:
-        raise RuntimeError(f"Missing required env vars: {', '.join(env_errs)}")
-    os.environ["GRAMMLOG_DIR"] = env["GRAMMLOG_DIR"]
-    os.environ["DEFAULT_GRAMMLOG_LEVEL"] = env["DEFAULT_GRAMMLOG_LEVEL"]
-
-
 def set_env(grammlog_dir: str | Path, default_grammlog_level: Level) -> None:
     """Explicitly set the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars without
     loading them from a file.
@@ -341,7 +310,11 @@ def make_logger(
 
             so that more information is logged for the scheduled maintenance tasks
             compared to the regular application usage.
-
+    Raises:
+        RuntimeError:
+            If `log_dir` is not provided or is `None` and `GRAMMLOG_DIR` is not in the env.
+            If `log_level` is not provided or is `None` and
+            neither `DEFAULT_GRAMMLOG_LEVEL` nor `GRAMMLOG_LEVEL` is in the env.
     Returns:
         The newly created or previously configured Logger instance.
     """

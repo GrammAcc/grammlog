@@ -18,16 +18,16 @@ async def reset_async_loggers():
 
 
 cases = [
-    (grammlog.async_debug, grammlog.Level.DEBUG),
-    (grammlog.async_info, grammlog.Level.INFO),
-    (grammlog.async_warning, grammlog.Level.WARNING),
-    (grammlog.async_error, grammlog.Level.ERROR),
-    (grammlog.async_critical, grammlog.Level.CRITICAL),
+    grammlog.async_debug,
+    grammlog.async_info,
+    grammlog.async_warning,
+    grammlog.async_error,
+    grammlog.async_critical,
 ]
 
 
-@pytest.mark.parametrize("async_log_func,log_level", cases)
-async def test_basic_async_logging(async_log_func, log_level, fixt_default_logger):
+@pytest.mark.parametrize("async_log_func", cases)
+async def test_basic_async_logging(async_log_func, fixt_default_logger):
     """Basic happy-path test cases."""
 
     assert os.path.getsize("logs/default.log") == 0
@@ -44,8 +44,8 @@ async def test_basic_async_logging(async_log_func, log_level, fixt_default_logge
     assert data["msg"] == "test message"
 
 
-@pytest.mark.parametrize("async_log_func,log_level", cases)
-async def test_async_timestamp(async_log_func, log_level, fixt_default_logger):
+@pytest.mark.parametrize("async_log_func", cases)
+async def test_async_timestamp(async_log_func, fixt_default_logger):
     """Ensure that async logging events use the timestamp for when the event is
     enqueued and not when the event is actually flushed to disk."""
 
@@ -67,6 +67,17 @@ async def test_async_timestamp(async_log_func, log_level, fixt_default_logger):
     data = json.loads(log_text)
 
     assert data["timestamp"] < later_timestamp - 0.4
+
+
+@pytest.mark.parametrize("async_log_func", cases)
+async def test_async_logging_value_error_when_logger_not_registered(
+    async_log_func, fixt_default_logger
+):
+    """Calling any of the `async_*` logging functions should raise a ValueError
+    if the logger has not been registered to an async queue."""
+
+    with pytest.raises(ValueError, match="not registered to an async queue."):
+        await async_log_func(fixt_default_logger, "some message")
 
 
 async def test_register_async_logger_value_error_when_already_registered(fixt_default_logger):
