@@ -623,19 +623,12 @@ async def _logging_loop(q: asyncio.Queue) -> None:
     # The `async_*` logging functions will `put` a (func, args, kwargs) tuple into
     # the queue, so that `q.get()` will block until a call to one of the async logging
     # functions with the logger that this queue is for.
-    # We catch CancelledError so that we can flush the remaining events from the queue
-    # when the wrapping task is cacelled. This simplifies the state management for the
-    # registered queues, but it should also prevent loss of log messages due to an unexpected
-    # cancellation propogation from user code.
-    try:
-        while True:
-            func, args, kwargs = await q.get()
-            func(*args, **kwargs)
-    except asyncio.CancelledError:
-        while not q.empty():
-            func, args, kwargs = await q.get()
-            func(*args, **kwargs)
-        raise
+    # The infinite loop will break when the wrapping task is cancelled due to the
+    # asyncio.CancelledError being raised.
+
+    while True:
+        func, args, kwargs = await q.get()
+        func(*args, **kwargs)
 
 
 def register_async_logger(logger: logging.Logger, max_size: int = 10) -> logging.Logger:
@@ -702,12 +695,6 @@ async def deregister_async_logger(logger: logging.Logger) -> logging.Logger:
         The `logger` unchanged.
     """
 
-    # Note: We need to remove the queue from _QUEUES before cancelling the task
-    # since a subsequent concurrent call to `register_async_logger`
-    # for the same logger has no reason to wait as long as we keep a reference to the
-    # queue we are removing outside the _QUEUES dict.
-    # Once the queue is empty, we can safely cancel the task and let it exit scope.
-
     logger_name = logger.name
     if logger_name not in _QUEUES:
         raise ValueError(
@@ -715,13 +702,23 @@ async def deregister_async_logger(logger: logging.Logger) -> logging.Logger:
 Did you mean to call `register_async_logger`?"
         )
 
-    task, _ = _QUEUES[logger_name]
+    # We remove the queue before we cancel and cleanup the task
+    # because we want to ensure that all pending log messages are
+    # flushed, and if we flush the current queue before deleting it
+    # from the `_QUEUES` registry, then we could have a race condition
+    # where an async logging function is called in another coroutine
+    # between the flush and the delete, which would result in that
+    # message being lost.
+    task, q = _QUEUES[logger_name]
     del _QUEUES[logger_name]
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
-        pass
+        # Flush remaining log events from the queue.
+        while not q.empty():
+            func, args, kwargs = await q.get()
+            func(*args, **kwargs)
     return logger
 
 
