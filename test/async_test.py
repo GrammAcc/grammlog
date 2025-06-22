@@ -12,9 +12,9 @@ import grammlog
 
 @pytest.fixture(autouse=True)
 async def reset_async_loggers():
-    await grammlog.deregister_all_async_loggers()
+    await grammlog.flush()
     yield None
-    await grammlog.deregister_all_async_loggers()
+    await grammlog.flush()
 
 
 cases = [
@@ -73,11 +73,15 @@ async def test_async_timestamp(async_log_func, fixt_default_logger):
 async def test_async_logging_value_error_when_logger_not_registered(
     async_log_func, fixt_default_logger
 ):
-    """Calling any of the `async_*` logging functions should raise a ValueError
-    if the logger has not been registered to an async queue."""
+    """Changed in version 1.3.0
+    Calling any of the `async_*` logging functions should register a
+    new async queue if one is not already registered for that logger
+    instead of raising an exception."""
 
-    with pytest.raises(ValueError, match="not registered to an async queue."):
+    try:
         await async_log_func(fixt_default_logger, "some message")
+    except Exception as e:
+        assert False, f"Exception {e} was raised"
 
 
 async def test_register_async_logger_value_error_when_already_registered(fixt_default_logger):

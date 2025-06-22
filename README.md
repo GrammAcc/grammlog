@@ -143,9 +143,9 @@ There are async versions of each of the logging functions as well as
 - `async_critical`
 - `register_async_logger`
 - `deregister_async_logger`
-- `deregister_all_async_loggers`
+- `flush`
 
-The async logging functions only work with a logger that has been registered.
+The async logging functions need the logger to be registered to an async queue.
 This is because the logging calls themselves are synchronous, and they
 need to be queued in order to run them concurrently with other tasks in the event
 loop. Registering a logger to be used asynchronously doesn't mutate the logger in
@@ -156,6 +156,13 @@ objects. Calling `register_async_logger` simply creates an
 and a [`Task`](https://docs.python.org/3/library/asyncio-task.html#task-object)
 to run synchronous logging functions in the background.
 
+For convenience, a queue will be registered for the logger when calling any of the `async_*`
+functions if one is not already registered. This makes environments like async unit tests
+that may be overriding or mocking event loops more reliable, but it makes it easy to miss
+an implicit queue registration. This can be problematic in applications that use multiple
+event loops, but for most applications, it's safe to let the `async_*` functions handle
+queue registration and simply call `flush` when shutting down the application.
+
 The async queues are managed internally in this package and run the logging
 events on the event loop in the background. This means that a call like
 `await async_info(logger, msg)` doesn't actually wait until the message is logged;
@@ -164,7 +171,7 @@ the event loop's task scheduler. This means that `deregister_async_logger` needs
 be called on any loggers registered as async before application shutdown in order to
 guarantee all log messages are flushed to their targets. Failing to deregister a
 logger will not cause any problems, but it may result in pending log messages being
-lost. To simplify cleanup, the `deregister_all_async_loggers` function can be used to
+lost. To simplify cleanup, the `flush` function can be used to
 deregister all registered async loggers during the application's shutdown procedure
 without needing a reference to each individual logger in that scope.
 
@@ -175,7 +182,51 @@ logger will cause that library's logging events to run asynchronously. The async
 works if the `async_*` functions are used. Registering a logger that you don't control will only add
 overhead due to the empty task taking CPU cycles away from other background work on the event loop.
 
-TODO: Add an example of async usage here.
+### Flask/Quart asyncio example
+
+Example:
+```python
+    #  __init__.py
+
+    from quart import Quart
+
+    import grammlog
+
+    def create_app():
+        app = Quart()
+
+        @app.before_serving
+        async def register_async_loggers():
+            # These loggers will be registered to the same event loop
+            # that the production server (e.g. hypercorn) is running.
+
+            grammlog.register_async_logger(grammlog.make_logger("auth"))
+            grammlog.register_async_logger(grammlog.make_logger("error"))
+
+        @app.after_serving
+        async def flush_pending_log_messages():
+            await grammlog.flush()
+
+        return app
+
+    # file.py
+    from Quart import Response
+
+    import grammlog
+
+    # This returns the same logger that was registered
+    # in the app factory.
+    auth_log = grammlog.make_logger("auth")
+
+    my_user_id = 1
+
+    async def authenticate(user_id):
+        if user_id != my_user_id:
+            await grammlog.async_error(auth_log, "Super secure authentication failed!")
+            return Response(401)
+        else:
+            return Response(200)
+```
 
 
 ### Async Performance Considerations
