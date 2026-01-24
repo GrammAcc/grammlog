@@ -27,43 +27,43 @@ cases = [
 
 
 @pytest.mark.parametrize("async_log_func", cases)
-async def test_basic_async_logging(async_log_func, fixt_default_logger):
+async def test_basic_async_logging(async_log_func, fixt_random_logger):
     """Basic happy-path test cases."""
 
-    assert os.path.getsize("logs/default.log") == 0
+    new_logger, rand_name = fixt_random_logger()
+    assert os.path.getsize(f"logs/{rand_name}.log") == 0
+    grammlog.register_async_logger(new_logger)
 
-    grammlog.register_async_logger(fixt_default_logger)
+    await async_log_func(new_logger, "test message")
 
-    await async_log_func(fixt_default_logger, "test message")
+    await grammlog.deregister_async_logger(new_logger)
 
-    await grammlog.deregister_async_logger(fixt_default_logger)
-
-    log_text = Path("logs/default.log").read_text()
+    log_text = Path(f"logs/{rand_name}.log").read_text()
     data = json.loads(log_text)
 
     assert data["msg"] == "test message"
 
 
 @pytest.mark.parametrize("async_log_func", cases)
-async def test_async_timestamp(async_log_func, fixt_default_logger):
+async def test_async_timestamp(async_log_func, fixt_random_logger):
     """Ensure that async logging events use the timestamp for when the event is
     enqueued and not when the event is actually flushed to disk."""
 
-    assert os.path.getsize("logs/default.log") == 0
-
-    grammlog.register_async_logger(fixt_default_logger)
+    new_logger, rand_name = fixt_random_logger()
+    assert os.path.getsize(f"logs/{rand_name}.log") == 0
+    grammlog.register_async_logger(new_logger)
 
     async def log_event():
-        await async_log_func(fixt_default_logger, "test message")
+        await async_log_func(new_logger, "test message")
 
     async def block_loop():
         time.sleep(0.5)
         return datetime.datetime.now(datetime.timezone.utc).timestamp()
 
     _, later_timestamp = await asyncio.gather(log_event(), block_loop())
-    await grammlog.deregister_async_logger(fixt_default_logger)
+    await grammlog.deregister_async_logger(new_logger)
 
-    log_text = Path("logs/default.log").read_text()
+    log_text = Path(f"logs/{rand_name}.log").read_text()
     data = json.loads(log_text)
 
     assert data["timestamp"] < later_timestamp - 0.4
