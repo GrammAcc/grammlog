@@ -274,7 +274,7 @@ from typing import (
     Protocol,
 )
 
-__VERSION__ = "1.4.0"
+__VERSION__ = "1.4.1"
 
 
 _string_to_log_level_map = {
@@ -428,16 +428,19 @@ def make_logger(
     logger = logging.getLogger(log_name)
     logger.setLevel(logging_level)
 
-    if not logger.handlers:
-        log_handler = RotatingFileHandler(
-            filename=logging_dir / f"{log_name}.log",
-            mode="a",
-            encoding="utf-8",
-            maxBytes=int(size_limit / 4),
-            backupCount=4,
-        )
-        log_handler.setLevel(logging_level)
-        logger.addHandler(log_handler)
+    curr_handlers = logger.handlers if logger.handlers else []
+    for h in curr_handlers:
+        logger.removeHandler(h)
+
+    log_handler = RotatingFileHandler(
+        filename=logging_dir / f"{log_name}.log",
+        mode="a",
+        encoding="utf-8",
+        maxBytes=int(size_limit / 4),
+        backupCount=4,
+    )
+    log_handler.setLevel(logging_level)
+    logger.addHandler(log_handler)
 
     return logger
 
