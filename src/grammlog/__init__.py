@@ -23,33 +23,36 @@ pip install grammlog
 ```pycon
 >>> import os
 >>> import grammlog
->>> logger = grammlog.make_logger("app", log_dir="logs", log_level=grammlog.Level.INFO)
->>> grammlog.info(logger, "application initialized")
+>>> logger = grammlog.make_logger("app") # Use default log dir and level
+>>> grammlog.warning(logger, "application initialized with default log dir and level")
+
+>>> grammlog.set_env(default_grammlog_dir="logs/app", default_grammlog_level=grammlog.Level.INFO)
+>>> app_logger = grammlog.make_logger("app") # Use default log dir and level set in the environment
 >>> grammlog.info(
-...     logger,
+...     app_logger,
 ...     "env vars set",
 ...     {"env": os.environ},
 ... )
->>> grammlog.set_env(grammlog_dir="logs", default_grammlog_level=grammlog.Level.INFO)
->>> auth_log = grammlog.make_logger("auth")  # Use the log_dir and log_level from the env.
+
+>>> auth_log = grammlog.make_logger("auth", log_dir="logs/auth", log_level=grammlog.Level.ERROR)
 >>> try:
 ...     user_id = 42
 ...     get_user_if_logged_in(user_id)
 ... except NameError as e:
 ...     grammlog.error(
-...         logger,
+...         auth_log,
 ...         "User was not logged in",
 ...         {"user_id": user_id},
 ...         err=e,
 ...     )
 >>> db_logger = grammlog.make_logger(
-...     "db_queries", log_dir="logs/db", log_level=grammlog.Level.ERROR
+...     "db_queries", log_dir="logs/db", log_level=grammlog.Level.DEBUG
 ... )
 >>> try:
 ...     user_name = "invalid"
 ...     db.query(table="users", user_name=user_name)
 ... except NameError as e:
-...     grammlog.error(
+...     grammlog.debug(
 ...         db_logger,
 ...         "Unknown error in db query",
 ...         {"queried_table": "users", "user_name": user_name},
@@ -271,7 +274,7 @@ from typing import (
     Protocol,
 )
 
-__VERSION__ = "1.3.0"
+__VERSION__ = "1.4.0"
 
 
 _string_to_log_level_map = {
@@ -304,16 +307,32 @@ class Level(IntEnum):
     CRITICAL = logging.CRITICAL
 
 
-def set_env(grammlog_dir: str | Path, default_grammlog_level: Level) -> None:
-    """Explicitly set the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` env vars without
-    loading them from a file.
+def set_env(**kwargs) -> None:
+    """Explicitly set env vars without loading them from a file.
 
-    Overwrites the `GRAMMLOG_DIR` and `DEFAULT_GRAMMLOG_LEVEL` vars in the global environment.
+    Valid env vars to pass as keyword arguments are:
+        - `default_grammlog_dir`: sets `DEFAULT_GRAMMLOG_DIR`
+        - `grammlog_dir`: sets `GRAMMLOG_DIR`
+        - `default_grammlog_level`: sets `DEFAULT_GRAMMLOG_LEVEL`
+        - `grammlog_level`: sets `GRAMMLOG_LEVEL`
+
+    Overwrites the env vars in the global environment.
     See: [`os.environ`](https://docs.python.org/3/library/os.html#os.environ)
     """
 
-    os.environ["GRAMMLOG_DIR"] = str(Path(grammlog_dir))
-    os.environ["DEFAULT_GRAMMLOG_LEVEL"] = _log_level_to_string_map[default_grammlog_level]
+    if "default_grammlog_dir" in kwargs:
+        os.environ["DEFAULT_GRAMMLOG_DIR"] = str(kwargs["default_grammlog_dir"])
+
+    if "grammlog_dir" in kwargs:
+        os.environ["GRAMMLOG_DIR"] = str(kwargs["grammlog_dir"])
+
+    if "default_grammlog_level" in kwargs:
+        os.environ["DEFAULT_GRAMMLOG_LEVEL"] = _log_level_to_string_map[
+            kwargs["default_grammlog_level"]
+        ]
+
+    if "grammlog_level" in kwargs:
+        os.environ["GRAMMLOG_LEVEL"] = _log_level_to_string_map[kwargs["grammlog_level"]]
 
 
 def make_logger(
@@ -321,20 +340,48 @@ def make_logger(
     size_limit: int = 1024 * 1024 * 4,
     log_dir: str | Path | None = None,
     log_level: Level | None = None,
+    default_log_dir: str | Path | None = None,
+    default_log_level: Level | None = None,
 ) -> logging.Logger:
     """Create and return a rotating file-based logger.
-
-    This function is idempotent.
 
     Uses [`getLogger`](https://docs.python.org/3/library/logging.html#logging.getLogger)
     to register/retrieve the logger and adds a
     [`RotatingFileHandler`](https://docs.python.org/3/library/logging.handlers.html#logging.handlers.RotatingFileHandler)
-    with four rotating backups if one has not been registered already.
+    with four rotating backups.
+
+    Note:
+        This function will mutate an existing logger if `log_name` already exists.
+        For example:
+            ```python
+            info_logger = grammlog.make_logger("logger", log_level=grammlog.Level.INFO)
+            error_logger = grammlog.make_logger("logger", log_level=grammlog.Level.ERROR)
+            grammlog.info(
+                info_logger,
+                "this message won't be logged because error_logger mutated the log level of the logger named 'logger'",  # noqa
+            )
+            ```
+
+    The log file path will be `{log_dir}/{log_name}.log`
+
+    The `log_dir` is chosen by the following priority:
+        - `log_dir` keyword argument to this function if provided.
+        - `GRAMMLOG_DIR` env var if set.
+        - `default_log_dir` keyword argument to this function if provided.
+        - `DEFAULT_GRAMMLOG_DIR` env var if set.
+        - `"logs"` if no other values are set.
+    The directory is created if it does not exist.
+
+    The `log_level` is chosen by the following priority:
+        - `log_level` keyword argument to this function if provided.
+        - `GRAMMLOG_LEVEL` env var if set.
+        - `default_log_level` keyword argument to this function if provided.
+        - `DEFAULT_GRAMMLOG_LEVEL` env var if set.
+        - `Level.INFO` if no other values are set.
 
     Args:
         log_name:
             The logger name passed to `getLogger`. Also determines the log filename.
-            The log files for this logger will be written to `{log_dir}/{log_name}.log`.
         size_limit:
             The total size limit for this logger in bytes.
             This value will be divided by 4 to give the size of each rotating log file.
@@ -344,67 +391,46 @@ def make_logger(
             loggers. Especially if you are in a server environment.
         log_dir:
             The parent directory to store the rotating log files.
-            If `None` or not provided, then this value will be read from the `GRAMMLOG_DIR`
-            environment variable.
-            The directory is created if it does not exist.
+        default_log_dir:
+            The default parent directory to store the rotating log files.
         log_level:
             The logging level to set this logger to.
-            If `None` or not provided, then this value will be read from the `GRAMMLOG_LEVEL`
-            environment variable if it is present with fallback to the `DEFAULT_GRAMMLOG_LEVEL`
-            environment variable.
-            This allows complex applications such as web servers to use a default logging
-            configuration with the ability to override the level on the commandline.
-            For example, the application could read a `.env` file with
+        default_log_level:
+            The default logging level to set this logger to.
 
-                DEFAULT_GRAMMLOG_LEVEL=ERROR
-
-            in production but have a cronjob with
-
-                @daily GRAMMLOG_LEVEL=INFO python scheduled_maintenance_script.py
-
-            so that more information is logged for the scheduled maintenance tasks
-            compared to the regular application usage.
-    Raises:
-        RuntimeError:
-            If
-              - `log_dir` is not provided or is `None` and `GRAMMLOG_DIR` is not in the env.
-              - `log_level` is not provided or is `None` and `DEFAULT_GRAMMLOG_LEVEL` is not
-                in the env.
     Returns:
         The newly created or previously configured Logger instance.
     """
 
-    # TODO: This function is intended to be idempotent, but the logic of the
-    # handler setup is not. If a caller calls this function with the same `logger_name`, but
-    # different `size_limit`s then the second call will return the first logger unchanged.
-    # I need to think about how I want to resolve this. The current behavior is probably fine
-    # since this is just a convenience function, so changing a handler should probably be
-    # done manually. But I still need to put some thought into this and at least document this
-    # behavior more clearly.
+    logging_dir = Path("logs")
+    if log_dir is not None:
+        logging_dir = Path(log_dir)
+    elif (grammlog_dir := os.getenv("GRAMMLOG_DIR", None)) is not None:
+        logging_dir = Path(grammlog_dir)
+    elif default_log_dir is not None:
+        logging_dir = Path(default_log_dir)
+    elif (default_grammlog_dir := os.getenv("DEFAULT_GRAMMLOG_DIR", None)) is not None:
+        logging_dir = Path(default_grammlog_dir)
 
-    if log_dir is None:
-        if "GRAMMLOG_DIR" not in os.environ:
-            raise RuntimeError("Missing env var: 'GRAMMLOG_DIR'.")
-        log_dir = Path(os.environ["GRAMMLOG_DIR"])
-    else:
-        log_dir = Path(log_dir)
-    if log_level is None:
-        if "DEFAULT_GRAMMLOG_LEVEL" not in os.environ:
-            raise RuntimeError("Missing env var: 'DEFAULT_GRAMMLOG_LEVEL'.")
-        log_level_str = os.environ.get("GRAMMLOG_LEVEL", os.environ["DEFAULT_GRAMMLOG_LEVEL"])
-        logging_level = _string_to_log_level_map[log_level_str]
-    else:
+    logging_level = Level.INFO.value
+    if log_level is not None:
         logging_level = log_level.value
+    elif (grammlog_level := os.getenv("GRAMMLOG_LEVEL", None)) is not None:
+        logging_level = _string_to_log_level_map[grammlog_level]
+    elif default_log_level is not None:
+        logging_level = default_log_level.value
+    elif (default_grammlog_level := os.getenv("DEFAULT_GRAMMLOG_LEVEL", None)) is not None:
+        logging_level = _string_to_log_level_map[default_grammlog_level]
 
-    if not log_dir.exists():
-        log_dir.mkdir(parents=True)
+    if not logging_dir.exists():
+        logging_dir.mkdir(parents=True)
 
     logger = logging.getLogger(log_name)
     logger.setLevel(logging_level)
 
     if not logger.handlers:
         log_handler = RotatingFileHandler(
-            filename=log_dir / f"{log_name}.log",
+            filename=logging_dir / f"{log_name}.log",
             mode="a",
             encoding="utf-8",
             maxBytes=int(size_limit / 4),

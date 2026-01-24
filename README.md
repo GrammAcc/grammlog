@@ -29,33 +29,36 @@ pip install grammlog
 ```pycon
 >>> import os
 >>> import grammlog
->>> logger = grammlog.make_logger("app", log_dir="logs", log_level=grammlog.Level.INFO)
->>> grammlog.info(logger, "application initialized")
+>>> logger = grammlog.make_logger("app") # Use default log dir and level
+>>> grammlog.warning(logger, "application initialized with default log dir and level")
+
+>>> grammlog.set_env(default_grammlog_dir="logs/app", default_grammlog_level=grammlog.Level.INFO)
+>>> app_logger = grammlog.make_logger("app") # Use default log dir and level set in the environment
 >>> grammlog.info(
-...     logger,
+...     app_logger,
 ...     "env vars set",
 ...     {"env": os.environ},
 ... )
->>> grammlog.set_env(grammlog_dir="logs", default_grammlog_level=grammlog.Level.INFO)
->>> auth_log = grammlog.make_logger("auth")  # Use the log_dir and log_level from the env.
+
+>>> auth_log = grammlog.make_logger("auth", log_dir="logs/auth", log_level=grammlog.Level.ERROR)
 >>> try:
 ...     user_id = 42
 ...     get_user_if_logged_in(user_id)
 ... except NameError as e:
 ...     grammlog.error(
-...         logger,
+...         auth_log,
 ...         "User was not logged in",
 ...         {"user_id": user_id},
 ...         err=e,
 ...     )
 >>> db_logger = grammlog.make_logger(
-...     "db_queries", log_dir="logs/db", log_level=grammlog.Level.ERROR
+...     "db_queries", log_dir="logs/db", log_level=grammlog.Level.DEBUG
 ... )
 >>> try:
 ...     user_name = "invalid"
 ...     db.query(table="users", user_name=user_name)
 ... except NameError as e:
-...     grammlog.error(
+...     grammlog.debug(
 ...         db_logger,
 ...         "Unknown error in db query",
 ...         {"queried_table": "users", "user_name": user_name},

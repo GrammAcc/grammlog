@@ -1,5 +1,4 @@
 import json
-import os.path
 from pathlib import Path
 
 import pytest
@@ -16,15 +15,14 @@ cases = [
 
 
 @pytest.mark.parametrize("sync_log_func,log_level", cases)
-def test_basic_logging(sync_log_func, log_level, fixt_default_logger):
+def test_basic_logging(sync_log_func, log_level, fixt_random_logger):
     """Basic happy-path test cases."""
 
-    assert os.path.getsize("logs/default.log") == 0
+    new_logger, rand_name = fixt_random_logger()
 
-    sync_log_func(fixt_default_logger, "test message")
+    sync_log_func(new_logger, "test message")
 
-    log_text = Path("logs/default.log").read_text()
-    print("whole test:", log_text)
+    log_text = Path(f"logs/{rand_name}.log").read_text()
     data = json.loads(log_text)
 
     assert data["msg"] == "test message"
